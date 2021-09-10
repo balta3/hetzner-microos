@@ -1,0 +1,126 @@
+#!/bin/bash
+
+set -e
+
+if [ -z "$DISK0" ] ; then
+  if [ -e /dev/nvme0n1 ] ; then
+    DISK0="/dev/nvme0n1"
+    PARTITIONSUFFIX="p"
+  elif [ -e /dev/sda ] ; then
+    DISK0="/dev/sda"
+    PARTITIONSUFFIX=""
+  else
+    echo "No suitable DISK0 found"
+    exit -1
+  fi
+fi
+
+if [ -z "$DISK1" ] ; then
+  if [ -e /dev/nvme1n1 ] ; then
+    DISK1="/dev/nvme1n1"
+  elif [ -e /dev/nvme0n2 ] ; then
+    DISK1="/dev/nvme0n2"
+  elif [ -e /dev/sdb ] ; then
+    DISK1="/dev/sdb"
+  else
+    echo "No suitable DISK1 found, will not create a RAID"
+  fi
+fi
+
+: ${GUI:="SSH"}
+if [ "$GUI" = "VNC" ] ; then
+  GUICMD="vnc=1 vncpassword=\"12345678\""
+elif [ "$GUI" = "SSH" ] ; then
+  GUICMD="ssh=1 ssh.password=\"12345678\""
+else
+  echo "Invalid GUI type: $GUI"
+  exit 1
+fi
+
+: ${DOWNLOAD_BASE:="http://download.opensuse.org/tumbleweed/repo/oss/boot/x86_64/loader/"}
+: ${SWAPSIZE:=32G}
+: ${ROOTSIZE:=40G}
+
+echo "####################################"
+echo "# Install required packages to the #"
+echo "# rescue system                    #"
+echo "####################################"
+echo
+
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install --assume-yes --show-progress kexec-tools aria2 btrfs-progs net-tools
+
+echo "####################################"
+echo "# Creating partitions on $DISK0    #"
+echo "####################################"
+echo
+
+sfdisk $DISK0 << EOF
+label: gpt
+,2M,21686148-6449-6E6F-744E-656564454649
+,${SWAPSIZE},0657FD6D-A4AB-43C4-84E5-0933C84B4F4F
+,${ROOTSIZE},4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709
+;
+EOF
+
+if [ -e "$DISK1" ] ; then
+  echo "####################################"
+  echo "# Creating partitions on $DISK1    #"
+  echo "####################################"
+  echo
+
+  sfdisk $DISK1 << EOF
+label: gpt
+,2M,21686148-6449-6E6F-744E-656564454649
+,${SWAPSIZE},0657FD6D-A4AB-43C4-84E5-0933C84B4F4F
+,${ROOTSIZE},4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709
+;
+EOF
+fi
+
+echo "####################################"
+echo "# Creating filesystems             #"
+echo "####################################"
+echo
+
+mkswap ${DISK0}${PARTITIONSUFFIX}2
+if [ -e "$DISK1" ] ; then
+  mkswap ${DISK1}${PARTITIONSUFFIX}2
+  mkfs.btrfs -m raid1 -d raid1 -L root -f ${DISK0}${PARTITIONSUFFIX}3 ${DISK1}${PARTITIONSUFFIX}3
+  mkfs.btrfs -m raid1 -d raid1 -L data -f ${DISK0}${PARTITIONSUFFIX}4 ${DISK1}${PARTITIONSUFFIX}4
+else
+  mkfs.btrfs -L root ${DISK0}${PARTITIONSUFFIX}3
+  mkfs.btrfs -L data ${DISK0}${PARTITIONSUFFIX}4
+fi
+
+echo "####################################"
+echo "# Download installation system     #"
+echo "####################################"
+echo
+
+wget --output-document=initrd.install ${DOWNLOAD_BASE}initrd
+wget --output-document=vmlinuz.install ${DOWNLOAD_BASE}linux
+
+echo "####################################"
+echo "# Switching to installation system #"
+echo "####################################"
+echo
+
+NETDEV=`ip -o route get to 1.1.1.1 | sed -n 's/.*dev \([a-z0-9.]\+\).*/\1/p'`
+IP=`ip -o route get to 1.1.1.1 | sed -n 's/.*src \([0-9.]\+\).*/\1/p'`
+GW=`ip -o route get to 1.1.1.1 | sed -n 's/.*via \([0-9.]\+\).*/\1/p'`
+NETMASK=`ifconfig "$NETDEV" | awk '/netmask/{ print $4;}'`
+
+COMMANDLINE="noapic $GUICMD install=http://download.opensuse.org/tumbleweed/repo/oss/ hostip=$IP netmask=$NETMASK gateway=$GW nameserver=1.1.1.1"
+
+echo "Commandline for kexec: $COMMANDLINE"
+
+kexec -l vmlinuz.install --initrd=initrd.install --command-line="$COMMANDLINE"
+
+
+echo "####################################"
+echo "# Ready                            #"
+echo "####################################"
+echo
+echo "Everything set up, run the following command to switch to the installation system:"
+echo "  kexec -e"
