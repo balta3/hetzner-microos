@@ -21,10 +21,11 @@ chmod +x initMicroOSSetup
 
 ### Configuration using environment variables
 
-Variable     | Default value | Description
------------- | ------------- | -------------
-`DISK0` / `DISK1` | _autodetected, like_ `/dev/nvme0n1` | Normally the disks to use are autodetected, you can specify them manually by setting these variables.
-`GUI` | `SSH` | Define the protocol to access Yast for the setup process: `SSH` or `VNC`
-`DOWNLOAD_BASE` | `http://download.opensuse.org/tumbleweed/repo/oss/boot/x86_64/loader/` | Define the base path for downloading the setup image of openSUSE
-`SWAPSIZE` | 32G | Size of the swap partition to create
-`ROOTSIZE` | 40G | Size of the root partition to create
+Variable          | Default value                                                          | Description
+----------------- | ---------------------------------------------------------------------- | -------------
+`DISK0` / `DISK1` | _autodetected, like_ `/dev/nvme0n1`                                    | Normally the disks to use are autodetected, you can specify them manually by setting these variables.
+`GUI`             | `SSH`                                                                  | Define the protocol to access Yast for the setup process: `SSH` or `VNC`
+`DOWNLOAD_BASE`   | `http://download.opensuse.org/tumbleweed/repo/oss/boot/x86_64/loader/` | Define the base path for downloading the setup image of openSUSE
+`SWAPSIZE`        | depends on disk size (>200G:32G; >100G:16G; > 50G:8G; <50G:4G)         | Size of the swap partition to create
+`ROOTSIZE`        | 40G                                                                    | Size of the root partition to create, ignored if no `/var` partition will be created
+`VAR_PARTITION`   | 1 _(0 if total space less than 100G)_                                  | Select if a separate `/var` partition will be created
